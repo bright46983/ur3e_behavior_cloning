@@ -71,14 +71,14 @@ def visualize_batch(batch, batch_idx=0):
     print(f"\nCurrent State: {state_labels.get(state.item(), 'Unknown')} ({state.item()})")
 
 
-# Example usage
-zip_dir = "/home/tanakrit-ubuntu/ur3e_mujoco_tasks/scripts/data"
-batch_size = 16
+# # Example usage
+# zip_dir = "/home/tanakrit-ubuntu/ur3e_mujoco_tasks/scripts/data"
+# batch_size = 16
 
-dataset = UR3EDataset(zip_dir)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+# dataset = UR3EDataset(zip_dir)
+# dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
-# Example usage with a batch from the dataloader
-for batch in dataloader:
-    print(batch["front_cam"].shape)
-    visualize_batch(batch, batch_idx=0)
+# # Example usage with a batch from the dataloader
+# for batch in dataloader:
+#     print(batch["front_cam"].shape)
+#     visualize_batch(batch, batch_idx=0)

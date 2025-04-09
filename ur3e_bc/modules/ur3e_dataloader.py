@@ -69,7 +69,6 @@ class UR3EDataset(Dataset):
 
         for meta_filename in self.metadata_files:
             pkl_path = os.path.join(self.zip_dir, meta_filename)
-            print(pkl_path)
             with open(pkl_path, 'rb') as f:
                 data = pkl.load(f)
             identifier = meta_filename.replace("metadata_", "").replace(".pkl", ".zip")
@@ -104,7 +103,6 @@ class UR3EDataset(Dataset):
     def __getitem__(self, idx):
         """Loads a sequence of (t-2, t-1, t) as input and output from t."""
         zip_filename,t_file, t_minus_1_file, t_minus_2_file   = self.valid_sequences[idx]
-        print(zip_filename,t_file, t_minus_1_file, t_minus_2_file)
 
         # Load all 3 frames
         data_t_minus_2 = self._load_pkl_from_zip(zip_filename, t_minus_2_file)
@@ -131,6 +129,13 @@ class UR3EDataset(Dataset):
             data_t["ee_pose"].reshape(7)
         ]), dtype=torch.float32)  # (3,7)
 
+        # Extract input joint states pose
+        js = torch.tensor(np.stack([
+            data_t_minus_2["joints"].reshape(6),
+            data_t_minus_1["joints"].reshape(6),
+            data_t["joints"].reshape(6)
+        ]), dtype=torch.float32)  # (3,7)
+
         # Extract outputs from @t
         ee_velocity = torch.tensor(data_t["ee_vel"].reshape(6), dtype=torch.float32)  # (6)
         hole_pose = torch.tensor(data_t["hole_pose"].reshape(7), dtype=torch.float32)  # (7)
@@ -141,6 +146,7 @@ class UR3EDataset(Dataset):
             "side_cam": side_cam,    # (3, 240, 180)
             "hand_cam": hand_cam,    # (3, 240, 180)
             "ee_pose": ee_pose,      # (3, 7)
+            "joints": js,
             "ee_velocity": ee_velocity,  # (6)
             "hole_pose": hole_pose,  # (7)
             "state": state           # (1)
