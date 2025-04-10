@@ -7,21 +7,28 @@ from torch.utils.data import Dataset, DataLoader
 import re
 import resource
 import sys
+import random
 
 
 class UR3EDataset(Dataset):
-    def __init__(self, zip_dir):
+    def __init__(self, zip_dir, data_num=None):
         """
         Args:
             zip_dir (str): Path to the directory containing ZIP files.
         """
         # param
         self.frame_hist = 3 # number of previous frames
-        self.frame_skipped = 2 # how far apart of each frame in timestep
+        self.frame_skipped = 5 # how far apart of each frame in timestep
 
         self.zip_dir = zip_dir
         self.zip_files = sorted([f for f in os.listdir(zip_dir) if f.endswith(".zip")])
         self.metadata_files = sorted([f for f in os.listdir(zip_dir) if f.endswith(".pkl")])
+
+        if data_num is not None:
+            # Randomly select a subset (ensure we don't exceed the available number of files)
+            self.zip_files = random.sample(self.zip_files, min(data_num, len(self.zip_files)))
+            self.metadata_files = random.sample(self.metadata_files, min(data_num, len(self.metadata_files)))
+
         self.episode_dict = self._group_episodes()
         
         # print(self.episode_dict)
@@ -69,6 +76,7 @@ class UR3EDataset(Dataset):
 
         for meta_filename in self.metadata_files:
             pkl_path = os.path.join(self.zip_dir, meta_filename)
+            # print(pkl_path)
             with open(pkl_path, 'rb') as f:
                 data = pkl.load(f)
             identifier = meta_filename.replace("metadata_", "").replace(".pkl", ".zip")
@@ -103,6 +111,7 @@ class UR3EDataset(Dataset):
     def __getitem__(self, idx):
         """Loads a sequence of (t-2, t-1, t) as input and output from t."""
         zip_filename,t_file, t_minus_1_file, t_minus_2_file   = self.valid_sequences[idx]
+        # print(zip_filename,t_file, t_minus_1_file, t_minus_2_file)
 
         # Load all 3 frames
         data_t_minus_2 = self._load_pkl_from_zip(zip_filename, t_minus_2_file)

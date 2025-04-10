@@ -27,9 +27,6 @@ def train_model(model, dataset, num_epochs=20, batch_size=16, lr=1e-4,
 
     model.to(device)
 
-    vel_criterion = nn.MSELoss()
-    pose_criterion = nn.MSELoss()
-    state_criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # TensorBoard Writer
@@ -51,6 +48,7 @@ def train_model(model, dataset, num_epochs=20, batch_size=16, lr=1e-4,
     for epoch in range(start_epoch, num_epochs):
         model.train()
         running_loss = 0.0
+        total_vel_loss, total_pose_loss, total_state_loss = 0, 0, 0
 
         for batch in tqdm(train_loader, desc=f"🚀 Epoch {epoch+1}/{num_epochs}"):
             front = batch['front_cam'].to(device)
@@ -66,28 +64,39 @@ def train_model(model, dataset, num_epochs=20, batch_size=16, lr=1e-4,
 
             vel_pred, pose_pred, state_pred = model(front, side, hand, ee_pose, joints)
 
-            loss_vel = vel_criterion(vel_pred, vel_gt)
-            loss_pose = pose_criterion(pose_pred, pose_gt)
-            loss_state = state_criterion(state_pred, state_gt)
+            total_loss, vel_loss, pose_loss, state_loss = loss_funtion(vel_pred, pose_pred, state_pred,vel_gt, pose_gt, state_gt, device)
 
-            total_loss = loss_vel * 1.0 + loss_pose * 0.5 + loss_state * 0.2
             total_loss.backward()
             optimizer.step()
+
+            total_vel_loss += vel_loss.item()
+            total_pose_loss += pose_loss.item()
+            total_state_loss += state_loss.item()
 
             running_loss += total_loss.item()
 
         avg_loss = running_loss / len(train_loader)
-        print(f"📊 Train Epoch {epoch+1}: Avg Loss = {avg_loss:.4f}")
+        avg_vel_loss = total_vel_loss / len(train_loader)
+        avg_pose_loss = total_pose_loss / len(train_loader)
+        avg_state_loss = total_state_loss / len(train_loader)
+        print(f"📊 Train Epoch {epoch+1}: Avg Loss = {avg_loss:.4f} | Vel Loss = {avg_vel_loss:.4f} | Pose Loss = {avg_pose_loss:.4f} | State Loss = {avg_state_loss:.4f}")
 
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'best_val_vel': best_val_vel
+        }, save_path)
+        print(f"💾 Checkpoint saved at epoch {epoch+1}")
         # Validation
         val_vel, val_pose, val_state, val_total, val_acc = evaluate_model(model, val_loader, device)
-        print(f"✅ Validation — Vel MSE: {val_vel:.4f} | Pose MSE: {val_pose:.4f} | State Acc: {val_acc*100:.2f}%")
+        print(f"✅ Validation — Avg Loss = {val_total:.4f} | Vel Loss: {val_vel:.4f} | Pose Loss: {val_pose:.4f} | State Loss: {val_state:.2f}%")
 
         # Train logs
-        writer.add_scalar("Train/Velocity_Loss", loss_vel.item(), epoch)
-        writer.add_scalar("Train/Pose_Loss", loss_pose.item(), epoch)
-        writer.add_scalar("Train/State_Loss", loss_state.item(), epoch)
-        writer.add_scalar("Train/Total_Loss", total_loss.item(), epoch)
+        writer.add_scalar("Train/Velocity_Loss", avg_vel_loss, epoch)
+        writer.add_scalar("Train/Pose_Loss", avg_pose_loss, epoch)
+        writer.add_scalar("Train/State_Loss", avg_state_loss, epoch)
+        writer.add_scalar("Train/Total_Loss", avg_loss, epoch)
 
         # Validation logs
         writer.add_scalar("Val/Velocity_Loss", val_vel, epoch)
@@ -117,11 +126,8 @@ def train_model(model, dataset, num_epochs=20, batch_size=16, lr=1e-4,
 @torch.no_grad()
 def evaluate_model(model, val_loader, device):
     model.eval()
-    vel_criterion = nn.MSELoss()
-    pose_criterion = nn.MSELoss()
-    state_criterion = nn.CrossEntropyLoss()
 
-    total_loss, total_vel_loss, total_pose_loss, total_state_loss = 0, 0, 0, 0
+    total_total_loss, total_vel_loss, total_pose_loss, total_state_loss = 0, 0, 0, 0
     correct, total = 0, 0
 
     for batch in val_loader:
@@ -136,14 +142,12 @@ def evaluate_model(model, val_loader, device):
         state_gt = batch['state'].squeeze(-1).to(device)
 
         vel_pred, pose_pred, state_pred = model(front, side, hand, ee_pose, joints)
+        total_loss, vel_loss, pose_loss, state_loss = loss_funtion(vel_pred, pose_pred, state_pred,vel_gt, pose_gt, state_gt, device)
 
-        loss_vel = vel_criterion(vel_pred, vel_gt)
-        loss_pose = pose_criterion(pose_pred, pose_gt)
-        loss_state = state_criterion(state_pred, state_gt)
-    
-        total_vel_loss += loss_vel.item()
-        total_pose_loss += loss_pose.item()
-        total_state_loss += loss_state.item()
+        total_vel_loss += vel_loss.item()
+        total_pose_loss += pose_loss.item()
+        total_state_loss += state_loss.item()
+        total_total_loss += total_loss.item()
 
         # Compute classification accuracy
         preds = torch.argmax(state_pred, dim=1)
@@ -153,19 +157,56 @@ def evaluate_model(model, val_loader, device):
     val_vel_loss = total_vel_loss / len(val_loader)
     val_pose_loss = total_pose_loss / len(val_loader)
     val_state_loss = total_state_loss / len(val_loader)
-    total_val_loss = val_vel_loss * 1.0 + val_pose_loss * 0.5 + val_state_loss * 0.2
+    total_val_loss = total_total_loss / len(val_loader)
 
     accuracy = correct / total
 
     return val_vel_loss, val_pose_loss, val_state_loss, total_val_loss, accuracy
 
 
+def loss_funtion(vel_pred, pose_pred, state_pred,vel_gt, pose_gt, state_gt, device):
+    # all loss function
+    # vel_direction_criterion = nn.CosineEmbeddingLoss()
+    vel_mag_criterion = nn.MSELoss()
+    pose_criterion = nn.MSELoss()
+    state_criterion = nn.CrossEntropyLoss()
+
+    # loss weights
+    weights = {"vel":2.0, "pose":0.1, "state":0.05}
+
+    # scale vel to be in range [-1,1]
+    # vel_pred = normalize_velocity(vel_pred.to(device))
+    # vel_gt = normalize_velocity(vel_gt.to(device))
+
+    # loss_vel = 2*vel_direction_criterion(vel_pred.to(device), vel_gt.to(device),torch.ones(vel_pred.shape[0]).to(device)) + 0.5*vel_mag_criterion(vel_pred.to(device), vel_gt.to(device))
+    loss_vel = vel_mag_criterion(vel_pred.to(device), vel_gt.to(device))
+    loss_pose = pose_criterion(pose_pred.to(device), pose_gt.to(device))
+    loss_state = state_criterion(state_pred.to(device), state_gt.to(device))
+
+    total_loss = loss_vel * weights["vel"] + loss_pose * weights["pose"] + loss_state * weights["state"]
+
+    return total_loss.to(device), loss_vel.to(device), loss_pose.to(device), loss_state.to(device)
+
+def normalize_velocity(tensor, eps=1e-8):
+    
+    v = tensor[:, :3]
+    w = tensor[:, 3:]
+
+    v_max = v.abs().max() + eps  # scalar
+    w_max = w.abs().max() + eps  # scalar
+
+    v_norm = v / v_max
+    w_norm = w / w_max
+
+    norm_tensor = torch.cat([v_norm, w_norm], dim=1)
+    return norm_tensor
+
 class Args:
-    data_dir = "/home/tanakrit-ubuntu/ur3e_mujoco_tasks/scripts/data"
+    data_dir = "/home/students/ur3e_mujoco_tasks/data/data_new"
     num_epochs = 100
-    batch_size = 16
+    batch_size = 20
     lr = 1e-4
-    save_dir = "/home/tanakrit-ubuntu/ur3e_behavior_cloning/runs"
+    save_dir = "/home/students/ur3e_behavior_cloning/runs"
     model_name = "model"
     checkpoint_path = ""
     resume_training = False
@@ -175,7 +216,7 @@ if __name__ == '__main__':
     args = Args()
 
     # load dataset 
-    dataset = UR3EDataset(args.data_dir)
+    dataset = UR3EDataset(args.data_dir,data_num=None)
 
     # Initiate model
     model = UR3EBCModel() 
