@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 
 from ur3e_bc.modules import UR3EDataset
-from ur3e_bc.models import UR3EBCModel
+from ur3e_bc.models import UR3EBCModel, UR3EBCRNNModel
 from torch.utils.data import DataLoader
 
 import time
@@ -172,7 +172,7 @@ def loss_funtion(vel_pred, pose_pred, state_pred,vel_gt, pose_gt, state_gt, devi
     state_criterion = nn.CrossEntropyLoss()
 
     # loss weights
-    weights = {"vel":2.0, "pose":0.1, "state":0.05}
+    weights = {"vel":2.0, "pose":0.2, "state":0.2}
 
     # scale vel to be in range [-1,1]
     # vel_pred = normalize_velocity(vel_pred.to(device))
@@ -202,13 +202,13 @@ def normalize_velocity(tensor, eps=1e-8):
     return norm_tensor
 
 class Args:
-    data_dir = "/home/students/ur3e_mujoco_tasks/data/data_new"
-    num_epochs = 100
+    data_dir = "/home/students/ur3e_mujoco_tasks/data/data_near"
+    num_epochs = 10
     batch_size = 20
     lr = 1e-4
     save_dir = "/home/students/ur3e_behavior_cloning/runs"
-    model_name = "model"
-    checkpoint_path = ""
+    model_name = "rnn_model_with_near_only"
+    checkpoint_path = "/home/students/ur3e_behavior_cloning/runs/rnn_model_20250410_235351.pth"
     resume_training = False
 
 if __name__ == '__main__':
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     dataset = UR3EDataset(args.data_dir,data_num=None)
 
     # Initiate model
-    model = UR3EBCModel() 
+    model = UR3EBCRNNModel() 
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_path = os.path.join(args.save_dir, f"{args.model_name}_{timestamp}.pth")
